@@ -5,9 +5,9 @@ using Lazarus;
 namespace Lazarus.Tests
 {
     /// <summary>
-    /// Behavior-level smoke test that validates the public API.
-    /// This test verifies that a GameObject can be marked with dismissal intent
-    /// and that state can be queried through the public interface.
+    /// Behavior-level smoke test for the deprecated DismissalMarker.
+    /// This test verifies that the deprecated API still exists for backwards compatibility
+    /// but clearly signals obsolescence through Obsolete attributes.
     /// </summary>
     public class DismissalMarkerSmokeTest
     {

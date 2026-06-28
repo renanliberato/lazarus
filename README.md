@@ -24,7 +24,9 @@ Or add it to `Packages/manifest.json`:
 
 ## Usage
 
-Attach `UIViewWatcher` to a GameObject in your boot scene. The watcher calls `DontDestroyOnLoad`, discovers matching UI views, and logs warnings when a tracked view is deactivated abruptly.
+Attach `UIViewWatcher` to a GameObject in your boot scene. The watcher calls `DontDestroyOnLoad`, discovers matching UI views, and logs warnings when a tracked view is deactivated abruptly without a dismissal animation.
+
+Lazarus passively observes UI view animations and infers dismissals from scale and opacity changes. Simply play your scale/fade animations as normal before calling `SetActive(false)` - no manual marking is required.
 
 ```csharp
 using Lazarus;
@@ -39,15 +41,15 @@ public class Boot : MonoBehaviour
 }
 ```
 
-Before hiding a tracked view, add or use a `DismissalMarker` and mark the dismissal as planned:
+## How It Works
 
-```csharp
-var marker = view.GetComponent<DismissalMarker>() ?? view.AddComponent<DismissalMarker>();
-marker.MarkDismissalPlanned();
+Lazarus is a passive observer - it watches your UI views and infers whether a deactivation was preceded by a proper dismissal animation.
 
-// Play your scale/fade animation, then deactivate.
-view.SetActive(false);
-```
+- **Canvas-backed views**: Pass when local scale decreases by at least 30% before deactivation
+- **CanvasGroup-backed views**: Pass when either alpha fades by 50% OR scale decreases by 30% (or both)
+- **Abrupt deactivation**: Emits diagnostic warnings when views are deactivated without recent qualifying motion
+
+The watcher samples tracked views at regular intervals and validates dismissals based on this observed history. No manual integration is required beyond installing the watcher.
 
 ## Default tracking rules
 

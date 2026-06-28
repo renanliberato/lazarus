@@ -5,12 +5,13 @@ namespace Lazarus
 {
     /// <summary>
     /// MonoBehaviour that persists across scene loads and watches UI activation lifecycle.
-    /// Discovers UI GameObjects, tracks their state, and emits diagnostics for abrupt deactivations.
+    /// Discovers UI GameObjects, tracks their animation history, and emits diagnostics for abrupt deactivations.
     /// </summary>
     public class UIViewWatcher : MonoBehaviour
     {
         private IViewFilter _viewFilter;
         private IDismissalPolicy _dismissalPolicy;
+        private AnimationHistoryObserver _animationObserver;
         private HashSet<GameObject> _trackedViews;
         private float _discoveryInterval = 0.5f; // Configurable interval in seconds
         private float _lastDiscoveryTime;
@@ -33,6 +34,7 @@ namespace Lazarus
             // Initialize with default filter and policy
             _viewFilter = new DefaultViewFilter();
             _dismissalPolicy = new DefaultDismissalPolicy();
+            _animationObserver = new AnimationHistoryObserver();
             _trackedViews = new HashSet<GameObject>();
             _lastDiscoveryTime = -_discoveryInterval; // Force immediate discovery on first frame
         }
@@ -54,12 +56,13 @@ namespace Lazarus
         }
 
         /// <summary>
-        /// Explicitly performs a single tick of discovery and checking.
+        /// Explicitly performs a single tick of discovery, sampling, and checking.
         /// This allows for manual control instead of relying on Update.
         /// </summary>
         public void Tick()
         {
             DiscoverNewViews();
+            SampleTrackedViews();
             CheckForAbruptDeactivations();
         }
 
@@ -92,6 +95,18 @@ namespace Lazarus
             }
         }
 
+        private void SampleTrackedViews()
+        {
+            // Sample animation state for all tracked active views
+            foreach (var view in _trackedViews)
+            {
+                if (view != null && view.activeSelf)
+                {
+                    _animationObserver.Sample(view);
+                }
+            }
+        }
+
         private void CheckForAbruptDeactivations()
         {
             // Check each tracked view for abrupt deactivation
@@ -107,7 +122,7 @@ namespace Lazarus
                 }
 
                 // Check if the view is being deactivated without dismissal evidence
-                if (!view.activeSelf && !HasDismissalEvidence(view))
+                if (!view.activeSelf && !_animationObserver.HasDismissalEvidence(view))
                 {
                     // Emit diagnostic for abrupt deactivation
                     EmitAbruptDeactivationDiagnostic(view);
@@ -119,25 +134,27 @@ namespace Lazarus
             foreach (var obj in objectsToRemove)
             {
                 _trackedViews.Remove(obj);
+                _animationObserver.ClearHistory(obj);
             }
-        }
-
-        private bool HasDismissalEvidence(GameObject view)
-        {
-            // Check if the view has a dismissal marker with planned dismissal
-            var dismissalMarker = view.GetComponent<IDismissalMarker>();
-            return dismissalMarker != null && dismissalMarker.IsDismissalPlanned();
         }
 
         private void EmitAbruptDeactivationDiagnostic(GameObject view)
         {
             // Validate the abrupt dismissal using the policy
-            var validationResult = _dismissalPolicy.ValidateDismissal(view, DismissalIntent.Abrupt);
+            var validationResult = _dismissalPolicy.ValidateDismissal(view, _animationObserver);
 
-            // Emit diagnostic with object context and rejection reason
+            // Emit diagnostic with object context, rejection reason, observed values, and thresholds
             Debug.LogWarning($"[Lazarus] Abrupt UI deactivation detected: {view.name}\n" +
+                            $"Path: {GetGameObjectPath(view)}\n" +
                             $"Reason: {validationResult.RejectionReason}\n" +
-                            $"Path: {GetGameObjectPath(view)}");
+                            $"Scale Animation Observed: {validationResult.ScaleAnimationObserved}\n" +
+                            $"Alpha Animation Observed: {validationResult.AlphaAnimationObserved}\n" +
+                            $"Observed First Scale: {validationResult.ObservedFirstScale}\n" +
+                            $"Observed Last Scale: {validationResult.ObservedLastScale}\n" +
+                            $"Observed First Alpha: {validationResult.ObservedFirstAlpha:F2}\n" +
+                            $"Observed Last Alpha: {validationResult.ObservedLastAlpha:F2}\n" +
+                            $"Scale Dismissal Threshold: {validationResult.ScaleDismissalThreshold:F2}\n" +
+                            $"Alpha Dismissal Threshold: {validationResult.AlphaDismissalThreshold:F2}");
         }
 
         private string GetGameObjectPath(GameObject obj)

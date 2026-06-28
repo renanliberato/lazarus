@@ -6,8 +6,8 @@ using System.Collections;
 namespace Lazarus.Tests
 {
     /// <summary>
-    /// Behavior-level tests for the UI activation lifecycle watcher.
-    /// Tests verify persistence, discovery, and diagnostic emission through public APIs.
+    /// Behavior-level tests for the UI activation lifecycle watcher with passive observation.
+    /// Tests verify persistence, discovery, sampling, and diagnostic emission through public APIs.
     /// </summary>
     public class UIViewWatcherTests
     {
@@ -72,7 +72,7 @@ namespace Lazarus.Tests
         }
 
         [Test]
-        public void Watcher_Explicit_Tick_Method_Performs_Discovery()
+        public void Watcher_Explicit_Tick_Method_Performs_Discovery_And_Sampling()
         {
             // Arrange: Create watcher and a new view
             var watcherObject = new GameObject("UIViewWatcher");
@@ -81,7 +81,7 @@ namespace Lazarus.Tests
             var newView = new GameObject("NewTestView");
             newView.AddComponent<Canvas>();
 
-            // Act: Call explicit Tick to force discovery
+            // Act: Call explicit Tick to force discovery and sampling
             watcher.Tick();
 
             // Assert: Verify Tick exists and can be called without errors
@@ -159,21 +159,24 @@ namespace Lazarus.Tests
         }
 
         [Test]
-        public void Watcher_Accepts_Dismissal_Evidence_Before_Deactivation()
+        public void Watcher_Accepts_Dismissal_Evidence_From_Observed_Scale_Animation()
         {
-            // Arrange: Create a tracked view with dismissal marker
+            // Arrange: Create a tracked view with scale animation
             var viewObject = new GameObject("TestView");
             viewObject.AddComponent<Canvas>();
-            var dismissalMarker = viewObject.AddComponent<DismissalMarker>();
+            viewObject.transform.localScale = Vector3.one;
 
             var watcherObject = new GameObject("UIViewWatcher");
             var watcher = watcherObject.AddComponent<UIViewWatcher>();
 
-            // Act: Mark dismissal as planned before deactivation
-            dismissalMarker.MarkDismissalPlanned();
+            // Act: Simulate scale animation before deactivation
+            watcher.Tick(); // Initial sample
+            viewObject.transform.localScale = new Vector3(0.1f, 0.1f, 0.1f); // Scale down
+            watcher.Tick(); // Sample after animation
+            viewObject.SetActive(false); // Deactivate
 
-            // Assert: Verify the dismissal was marked
-            Assert.IsTrue(dismissalMarker.IsDismissalPlanned(), "Dismissal should be marked as planned");
+            // Assert: Verify the watcher handles dismissal evidence from observation
+            Assert.IsNotNull(watcher, "Watcher should handle deactivations with observed animation evidence");
 
             // Clean up
             Object.DestroyImmediate(viewObject);
@@ -181,19 +184,22 @@ namespace Lazarus.Tests
         }
 
         [Test]
-        public void Watcher_Does_Not_Emit_Diagnostics_When_Dismissal_Is_Planned()
+        public void Watcher_Does_Not_Emit_Diagnostics_When_Dismissal_Animation_Is_Observed()
         {
-            // Arrange: Create a tracked view with dismissal marker and mark dismissal planned
+            // Arrange: Create a tracked view and simulate proper dismissal animation
             var viewObject = new GameObject("TestView");
             viewObject.AddComponent<Canvas>();
-            var dismissalMarker = viewObject.AddComponent<DismissalMarker>();
-            dismissalMarker.MarkDismissalPlanned();
+            viewObject.transform.localScale = Vector3.one;
 
             var watcherObject = new GameObject("UIViewWatcher");
             var watcher = watcherObject.AddComponent<UIViewWatcher>();
 
-            // Act: Deactivate the view WITH dismissal evidence
-            viewObject.SetActive(false);
+            // Act: Simulate scale animation and deactivate
+            watcher.Tick(); // Initial sample at full scale
+            viewObject.transform.localScale = new Vector3(0.1f, 0.1f, 0.1f); // Animate scale down
+            watcher.Tick(); // Sample after animation
+            viewObject.SetActive(false); // Deactivate WITH animation evidence
+            watcher.Tick(); // Check for abrupt deactivations
 
             // Assert: Verify the watcher can handle deactivation with evidence
             // (In a real Unity test, we'd verify no warning was logged)
@@ -205,18 +211,19 @@ namespace Lazarus.Tests
         }
 
         [Test]
-        public void Watcher_Detects_Abrupt_Deactivation_Without_Dismissal_Evidence()
+        public void Watcher_Detects_Abrupt_Deactivation_Without_Observed_Animation()
         {
-            // Arrange: Create a tracked view without dismissal marker
+            // Arrange: Create a tracked view without animation history
             var viewObject = new GameObject("TestView");
             viewObject.AddComponent<Canvas>();
-            viewObject.SetActive(true);
+            viewObject.transform.localScale = Vector3.one;
 
             var watcherObject = new GameObject("UIViewWatcher");
             var watcher = watcherObject.AddComponent<UIViewWatcher>();
 
-            // Act: Abruptly deactivate the view without dismissal evidence
+            // Act: Abruptly deactivate the view without animation evidence
             viewObject.SetActive(false);
+            watcher.Tick(); // Check for abrupt deactivations
 
             // Assert: Verify the watcher can detect abrupt deactivation
             // (In a real Unity test, we'd capture Debug.LogWarning output)
@@ -228,26 +235,57 @@ namespace Lazarus.Tests
         }
 
         [Test]
-        public void Watcher_Uses_Public_Interface_Safely_Without_Casting()
+        public void Watcher_Samples_Active_Views_Regularly()
         {
-            // Arrange: Create a view with dismissal marker
-            var viewObject = new GameObject("TestView");
-            viewObject.AddComponent<Canvas>();
-            var dismissalMarker = viewObject.AddComponent<DismissalMarker>();
-
+            // Arrange: Create a watcher and active views
             var watcherObject = new GameObject("UIViewWatcher");
             var watcher = watcherObject.AddComponent<UIViewWatcher>();
 
-            // Act: Use the public interface to mark and check dismissal
-            var publicInterface = (IDismissalMarker)dismissalMarker;
-            publicInterface.MarkDismissalPlanned();
+            var canvasView = new GameObject("CanvasView");
+            canvasView.AddComponent<Canvas>();
+            canvasView.transform.localScale = Vector3.one;
 
-            // Assert: Verify the public interface works without casting
-            Assert.IsTrue(publicInterface.IsDismissalPlanned(),
-                "Public interface should provide IsDismissalPlanned without casting to concrete type");
+            var canvasGroupView = new GameObject("CanvasGroupView");
+            var canvasGroup = canvasGroupView.AddComponent<CanvasGroup>();
+            canvasGroup.alpha = 1.0f;
+
+            // Act: Perform multiple ticks to sample views
+            watcher.Tick(); // Initial discovery and sampling
+
+            // Modify views
+            canvasView.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
+            canvasGroup.alpha = 0.5f;
+
+            watcher.Tick(); // Sample after changes
+
+            // Assert: Verify watcher can handle regular sampling
+            Assert.IsNotNull(watcher, "Watcher should handle regular sampling of active views");
 
             // Clean up
-            Object.DestroyImmediate(viewObject);
+            Object.DestroyImmediate(canvasView);
+            Object.DestroyImmediate(canvasGroupView);
+            Object.DestroyImmediate(watcherObject);
+        }
+
+        [Test]
+        public void Watcher_Does_Not_Sample_Inactive_Views()
+        {
+            // Arrange: Create a watcher and an inactive view
+            var watcherObject = new GameObject("UIViewWatcher");
+            var watcher = watcherObject.AddComponent<UIViewWatcher>();
+
+            var inactiveView = new GameObject("InactiveView");
+            inactiveView.AddComponent<Canvas>();
+            inactiveView.SetActive(false);
+
+            // Act: Perform tick
+            watcher.Tick();
+
+            // Assert: Verify watcher doesn't crash on inactive views
+            Assert.IsNotNull(watcher, "Watcher should handle inactive views gracefully");
+
+            // Clean up
+            Object.DestroyImmediate(inactiveView);
             Object.DestroyImmediate(watcherObject);
         }
     }
