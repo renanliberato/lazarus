@@ -1,0 +1,17 @@
+{
+  "name": "com.renanliberato.lazarus",
+  "version": "0.1.0",
+  "displayName": "Lazarus - Animated UI Dismissal Guard",
+  "description": "A Unity package that helps detect and guard against UI objects being hidden without proper dismissal animations.",
+  "unity": "2021.3",
+  "keywords": [
+    "ui",
+    "animation",
+    "dismissal",
+    "guard"
+  ],
+  "author": {
+    "name": "Renan Liberato"
+  },
+  "samples": []
+}
